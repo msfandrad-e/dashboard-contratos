@@ -42,10 +42,25 @@ dashboard-contratos/
 ├── .streamlit/
 │   └── style.css
 │
+├── exemplos/
+│   └── Base_Demonstracao.xlsx
+│
 ├── App_controle.py
 ├── requirements.txt
 └── README.md
 ```
+## 📥 Base de dados para demonstração
+
+Para facilitar a avaliação e a utilização da aplicação, disponibilizamos uma planilha de demonstração com dados fictícios e estrutura compatível com o dashboard.
+
+**[Baixar planilha de demonstração](exemplos/Base_Demonstracao.xlsx)**
+
+### Como utilizar
+
+1. Baixe a planilha de demonstração.
+2. Acesse a [aplicação online](https://dashboard-contratos-jsvjuefcstgypfra9jdfvc.streamlit.app/).
+3. Faça upload do arquivo Excel.
+4. Explore os indicadores, filtros e visualizações disponíveis.
 
 ## 💻 Como executar localmente
 
