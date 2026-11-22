@@ -1,20 +1,21 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objs as go
+import streamlit.components.v1 as components
+import json
 import plotly.express as px
-from datetime import datetime
 import os
 import io
 
-#===============================
-#Carregando o CSS3
-#===============================
+# =======================================================
+# Carregamento CSS (desativado para testes da aplicacao)
+# ========================================================
 def load_css():
-    with open(".streamlit/style.css") as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-#carrega o css
+    with open(".streamlit/style.css", "r", encoding="utf-8") as f:
+       st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
 load_css()
+
 
 st.set_page_config(page_title="App Controle de Contratos", page_icon="📊", layout="wide")
 
@@ -153,91 +154,11 @@ if upload_file is not None:
         for coluna in colunas_data:
             if coluna in df.columns and pd.api.types.is_datetime64_any_dtype(df[coluna]):
                 dados_validos = df[coluna].notna().sum()
-                st.sidebar.success(f"📅 {coluna}: {dados_validos} datas válidas")
+                #st.sidebar.success(f "📅 {coluna}: {dados_validos} datas válidas") //DESATIVADO POR NÃO HAVER NECESSIDADE.
 
-        # ==============================
-        # FILTROS NO SIDEBAR
-        # ==============================
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🎛️ Filtros")
+        df_filtrado = df.copy()
 
-        # Mantém a ordem original das colunas, mas remove as específicas
-        colunas = df.columns.tolist()
 
-        # Lista de colunas para REMOVER dos filtros
-        colunas_remover = ['SALDO', 'PERCENTUAL TEÓRICO', 'PERCENTUAL SEGREGADO']
-
-        # Filtra apenas as colunas que devem aparecer nos filtros
-        colunas_filtro = [col for col in colunas if col not in colunas_remover]
-
-        # Inicializa filtros apenas para as colunas que serão mostradas
-        if "filtros" not in st.session_state:
-            st.session_state["filtros"] = {col: [] for col in colunas_filtro}
-
-        # Botão limpar filtros
-        if st.sidebar.button("🧹 Limpar Filtros", use_container_width=True):
-            # Limpa todos os filtros das colunas visíveis
-            for coluna in colunas_filtro:
-                st.session_state[f"multiselect_{coluna}"] = []
-            st.session_state["filtros"] = {col: [] for col in colunas_filtro}
-            st.rerun()
-
-        # Criação dos filtros interligados (apenas para colunas selecionadas)
-        for coluna in colunas_filtro:
-            mascara_outras = pd.Series(True, index=df.index)
-            for outra_col, escolhas in st.session_state["filtros"].items():
-                if outra_col != coluna and escolhas:
-                    if pd.api.types.is_datetime64_any_dtype(df[outra_col]):
-                        # Para datas, converte as escolhas para datetime
-                        datas_escolhidas = [pd.to_datetime(esc) for esc in escolhas]
-                        mascara_outras &= df[outra_col].isin(datas_escolhidas)
-                    else:
-                        mascara_outras &= df[outra_col].astype(str).isin([str(v) for v in escolhas])
-
-            temp_df = df[mascara_outras]
-
-            # Prepara opções baseadas no tipo de dados
-            if pd.api.types.is_datetime64_any_dtype(df[coluna]):
-                # Para datas, formata bonitinho
-                opcoes = sorted(temp_df[coluna].dropna().unique())
-                opcoes_str = [d.strftime('%d/%m/%Y') for d in opcoes]
-            else:
-                opcoes = sorted(temp_df[coluna].dropna().astype(str).unique().tolist())
-                opcoes_str = opcoes
-
-            # Usa a chave única para cada multiselect
-            escolha = st.sidebar.multiselect(
-                f"**{coluna}:**",
-                options=opcoes_str,
-                default=st.session_state.get(f"multiselect_{coluna}", []),
-                key=f"multiselect_{coluna}",
-                placeholder=f"Selecione {coluna}..."
-            )
-
-            # Atualiza os filtros na session state
-            st.session_state["filtros"][coluna] = escolha
-
-        # Aplica filtros combinados
-        mascara_final = pd.Series(True, index=df.index)
-        for coluna, escolhas in st.session_state["filtros"].items():
-            if escolhas:
-                if pd.api.types.is_datetime64_any_dtype(df[coluna]):
-                    # Para datas, converte de volta para datetime
-                    datas_escolhidas = [pd.to_datetime(esc, dayfirst=True) for esc in escolhas]
-                    mascara_final &= df[coluna].isin(datas_escolhidas)
-                else:
-                    mascara_final &= df[coluna].astype(str).isin([str(v) for v in escolhas])
-
-        df_filtrado = df[mascara_final].copy()
-
-        # Mostrar estatísticas
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("📈 Total de Registros", len(df))
-        with col2:
-            st.metric("✅ Filtrados", len(df_filtrado))
-        with col3:
-            st.metric("📊 % do Total", f"{(len(df_filtrado) / len(df) * 100):.1f}%" if len(df) > 0 else "0%")
 
         # ==============================
         # ANÁLISE VISUAL
@@ -246,7 +167,7 @@ if upload_file is not None:
             st.markdown("---")
             st.subheader("📊 Análise Visual")
 
-            # 1. GRÁFICO DE PIZZA - COLUNAS 2 E 7
+            # 1. GRÁFICO DE PIZZA - ECHARTS
             if df_filtrado.shape[1] >= 7:
                 col_empresa = df_filtrado.columns[1]
                 col_valor = df_filtrado.columns[6]
@@ -262,19 +183,168 @@ if upload_file is not None:
                 )
 
                 if not df_grouped.empty:
-                    fig_valores = px.pie(
-                        df_grouped,
-                        names=col_empresa,
-                        values=col_valor,
-                        title=f"Distribuição de {col_valor} por {col_empresa}",
-                        hole=0.3
-                    )
-                    fig_valores.update_traces(textinfo='percent+label')
-                    st.plotly_chart(fig_valores, use_container_width=True)
-                else:
-                    st.info("Nenhum valor numérico encontrado na coluna 7 para gerar o gráfico.")
-            else:
-                st.warning("A planilha precisa ter pelo menos 7 colunas para gerar este gráfico.")
+                    # Prepara os dados para ECharts
+                    pie_data = [
+                        {"name": str(row[col_empresa]), "value": float(row[col_valor])}
+                        for _, row in df_grouped.iterrows()
+                    ]
+
+                    chart_data = json.dumps(pie_data)
+
+                    html_pizza = f"""
+                    <div id="echart_pizza" class="echarts-container chart-ready" style="width: 100%; height: 400px;"></div>
+
+                    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+                    <script>
+                        // Configuração do gráfico de pizza
+                        var chartOptions = {{
+                            title: {{
+                                text: 'Distribuição de {col_valor} por {col_empresa}',
+                                left: 'center'
+                            }},
+                            tooltip: {{
+                                trigger: 'item'
+                            }},
+                            legend: {{
+                                orient: 'vertical',
+                                left: 'left'
+                            }},
+                            series: [
+                                {{
+                                    name: '{col_valor}',
+                                    type: 'pie',
+                                    radius: ['40%', '70%'],
+                                    avoidLabelOverlap: false,
+                                    itemStyle: {{
+                                        borderRadius: 10,
+                                        borderColor: '#fff',
+                                        borderWidth: 2
+                                    }},
+                                    label: {{
+                                        show: true,
+                                        formatter: '{{b}}: {{d}}%'
+                                    }},
+                                    emphasis: {{
+                                        label: {{
+                                            show: true,
+                                            fontSize: '16',
+                                            fontWeight: 'bold'
+                                        }}
+                                    }},
+                                    labelLine: {{
+                                        show: true
+                                    }},
+                                    data: {chart_data}
+                                }}
+                            ]
+                        }};
+
+                        // Função principal de inicialização
+                        function initializeLazyChart() {{
+                            console.log('🎯 Inicializando gráfico de pizza com lazy loading...');
+
+                            if (window.initLazyChart) {{
+                                var chart = window.initLazyChart('echart_pizza', chartOptions);
+
+                                if (chart) {{
+                                    console.log('✅ Gráfico de pizza registrado - animará quando 90% estiver visível');
+                                    chart.on('finished', function() {{
+                                        document.getElementById('echart_pizza').classList.add('animated');
+                                        document.getElementById('echart_pizza').classList.remove('chart-ready');
+                                    }});
+                                }} else {{
+                                    console.warn('⚠️ Falha no lazy loading, usando fallback');
+                                    initializeFallback();
+                                }}
+                            }} else {{
+                                console.warn('⚠️ Sistema lazy loading não disponível, usando fallback');
+                                initializeFallback();
+                            }}
+                        }}
+
+                        // Fallback: animação imediata
+                        function initializeFallback() {{
+                            console.log('🔄 Inicializando fallback (animação imediata)');
+                            try {{
+                                var chart = echarts.init(document.getElementById('echart_pizza'));
+                                chart.setOption({{
+                                    ...chartOptions,
+                                    animation: true,
+                                    animationDuration: 1000,
+                                    animationEasing: 'elasticOut'
+                                }});
+
+                                // Marca como animado
+                                document.getElementById('echart_pizza').classList.add('animated');
+                                document.getElementById('echart_pizza').classList.remove('chart-ready');
+
+                                window.addEventListener('resize', function() {{
+                                    chart.resize();
+                                }});
+
+                            }} catch (error) {{
+                                console.error('❌ Erro no fallback:', error);
+                            }}
+                        }}
+
+                        // Sistema de lazy loading global (se não existir)
+                        if (typeof window.initLazyChart === 'undefined') {{
+                            window.initLazyChart = function(chartId, options) {{
+                                var chartElement = document.getElementById(chartId);
+                                if (!chartElement) return null;
+
+                                var chart = echarts.init(chartElement);
+
+                                // Observer para detectar quando o gráfico está 90% visível
+                                var observer = new IntersectionObserver(function(entries) {{
+                                    entries.forEach(function(entry) {{
+                                        if (entry.isIntersecting && entry.intersectionRatio >= 0.9) {{
+                                            chart.setOption({{
+                                                ...options,
+                                                animation: true,
+                                                animationDuration: 1000,
+                                                animationEasing: 'elasticOut'
+                                            }});
+                                            observer.unobserve(entry.target);
+                                        }}
+                                    }});
+                                }}, {{ threshold: 0.9 }});
+
+                                observer.observe(chartElement);
+                                return chart;
+                            }};
+                        }}
+
+                        // Estratégias de inicialização
+                        if (document.readyState === 'loading') {{
+                            document.addEventListener('DOMContentLoaded', initializeLazyChart);
+                        }} else {{
+                            initializeLazyChart();
+                        }}
+
+                        // Backups em caso de falha
+                        setTimeout(initializeLazyChart, 500);
+                        setTimeout(function() {{
+                            var chart = echarts.getInstanceByDom(document.getElementById('echart_pizza'));
+                            if (!chart) {{
+                                console.log('🔄 Backup: gráfico não inicializado, tentando fallback');
+                                initializeFallback();
+                            }}
+                        }}, 2000);
+
+                        // Backup final - garante que o gráfico será exibido
+                        setTimeout(function() {{
+                            var chart = echarts.getInstanceByDom(document.getElementById('echart_pizza'));
+                            if (!chart) {{
+                                console.log('🔄 Último backup: inicialização forçada');
+                                initializeFallback();
+                            }}
+                        }}, 3000);
+
+                    </script>
+                    """
+
+                    components.html(html_pizza, height=450)
 
             # 2. GRÁFICO DE GANTT PARA DATAS DE CONTRATOS
             st.markdown("---")
@@ -293,10 +363,10 @@ if upload_file is not None:
                         if pd.notna(row[col_inicio]) and pd.notna(row[col_fim]):
                             gantt_data.append({
                                 'Nome': f"{row[col_empresa]} - Contrato {idx}",
-                                'Start': row[col_inicio],
-                                'Finish': row[col_fim],
+                                'Início': row[col_inicio],
+                                'Fim': row[col_fim],
                                 'Empresa': row[col_empresa],
-                                'Duracao': (row[col_fim] - row[col_inicio]).days
+                                'Duração': (row[col_fim] - row[col_inicio]).days
                             })
 
                     if gantt_data:
@@ -304,12 +374,12 @@ if upload_file is not None:
 
                         fig_gantt = px.timeline(
                             df_gantt,
-                            x_start="Start",
-                            x_end="Finish",
+                            x_start="Início",
+                            x_end="Fim",
                             y="Nome",
                             color="Empresa",
                             title="Linha do Tempo dos Contratos",
-                            hover_data={"Duracao": True, "Empresa": True},
+                            hover_data={"Duração": True, "Empresa": True},
                             color_discrete_sequence=px.colors.qualitative.Set3
                         )
                         fig_gantt.update_yaxes(autorange="reversed")
@@ -436,99 +506,465 @@ if upload_file is not None:
                                             st.caption(
                                                 f"... e mais {len(normais) - 5} contratos com vencimento acima de 1 ano")
 
-            # 3. GRÁFICO DE BARRAS - PORCENTAGENS POR EMPRESA
+            # 3. GRÁFICO DE BARRAS ECHARTS (CORRIGIDO COM NOVA LÓGICA)
             st.markdown("---")
-            st.subheader("🏢 Comparação de Porcentagens por Empresa")
+            st.subheader("🏢 Comparação: VALOR UTILIZADO vs SALDO RESTANTE")
 
-            if len(df_filtrado.columns) >= 10:
-                col_perc1 = df_filtrado.columns[8]  # Coluna 9
-                col_perc2 = df_filtrado.columns[9]  # Coluna 10
-                col_empresa = df_filtrado.columns[1]  # Coluna 2
+            # Verifica se as colunas necessárias existem
+            colunas_necessarias = ['VALOR GLOBAL', 'SALDO', 'VALOR SEGREGADO',
+                                   df_filtrado.columns[1]]  # Coluna 2 é empresa
 
-                df_filtrado[col_perc1] = pd.to_numeric(df_filtrado[col_perc1], errors='coerce')
-                df_filtrado[col_perc2] = pd.to_numeric(df_filtrado[col_perc2], errors='coerce')
+            if all(col in df_filtrado.columns for col in colunas_necessarias):
+                col_global = 'VALOR GLOBAL'  # Coluna F - Valor total do contrato
+                col_saldo_restante = 'SALDO'  # Coluna H - Valor que ainda resta
+                col_valor_usado = 'VALOR SEGREGADO'  # Coluna G - Valor já utilizado
+                col_empresa = df_filtrado.columns[1]  # Coluna 2 (nome das empresas)
 
-                mask_validas = df_filtrado[col_perc1].notna() & df_filtrado[col_perc2].notna()
+                # Converte para numérico
+                df_filtrado[col_global] = pd.to_numeric(df_filtrado[col_global], errors='coerce')
+                df_filtrado[col_saldo_restante] = pd.to_numeric(df_filtrado[col_saldo_restante], errors='coerce')
+                df_filtrado[col_valor_usado] = pd.to_numeric(df_filtrado[col_valor_usado], errors='coerce')
+
+                # Filtra linhas válidas (não nulas)
+                mask_validas = (
+                        df_filtrado[col_global].notna() &
+                        df_filtrado[col_saldo_restante].notna() &
+                        df_filtrado[col_valor_usado].notna() &
+                        (df_filtrado[col_global] > 0)  # Evita divisão por zero
+                )
                 df_comparacao = df_filtrado[mask_validas].copy()
 
                 if len(df_comparacao) > 0:
+                    # Agrupa por empresa e calcula totais
                     df_empresas = df_comparacao.groupby(col_empresa).agg({
-                        col_perc1: 'mean',
-                        col_perc2: 'mean',
-                        col_empresa: 'count'
-                    }).rename(columns={col_empresa: 'QTD_CONTRATOS'}).reset_index()
+                        col_global: 'sum',
+                        col_saldo_restante: 'sum',
+                        col_valor_usado: 'sum'
+                    }).reset_index()
 
-                    # Mostra apenas as top 10 empresas por padrão
-                    df_top = df_empresas.nlargest(10, col_perc1)
+                    # NOVA LÓGICA: CALCULA PERCENTUAIS CORRETOS
+                    df_empresas['percentual_utilizado'] = (df_empresas[col_valor_usado] / df_empresas[col_global]) * 100
+                    df_empresas['percentual_restante'] = (df_empresas[col_saldo_restante] / df_empresas[
+                        col_global]) * 100
 
-                    fig_barras = px.bar(
-                        df_top,
-                        x=col_empresa,
-                        y=[col_perc1, col_perc2],
-                        title=f"Comparação: {col_perc1} vs {col_perc2} por Empresa",
-                        barmode='group',
-                        color_discrete_sequence=['#FF6B6B', '#45B7D1'],
-                        labels={'value': 'Porcentagem (%)', 'variable': 'Tipo'}
-                    )
-                    fig_barras.update_layout(yaxis_tickformat='.1%', xaxis_tickangle=-45)
-                    st.plotly_chart(fig_barras, use_container_width=True)
+                    # NOVA MÉTRICA DE EFICIÊNCIA: Quanto foi usado do valor total
+                    df_empresas['eficiencia'] = (df_empresas[col_valor_usado] / df_empresas[col_global]) * 100
 
-            # Tabela completa COM TRATAMENTO DE NONE
-            with st.expander("📋 Ver Dados Filtrados Completos"):
-                # Aplica limpeza em todo o dataframe
-                df_completo_limpo = limpar_dataframe_para_download(df_filtrado)
+                    # Calcula diferenças (agora faz mais sentido)
+                    df_empresas['diferenca_percentual'] = df_empresas['percentual_utilizado'] - df_empresas[
+                        'percentual_restante']
+                    df_empresas['diferenca_absoluta'] = df_empresas[col_valor_usado] - df_empresas[col_saldo_restante]
 
-                st.dataframe(df_completo_limpo, use_container_width=True)
-                st.caption(f"📊 Total de registros: {len(df_completo_limpo)}")
 
-        else:
-            st.warning("⚠️ Nenhum dado encontrado com os filtros atuais.")
+                    # LÓGICA DE CLASSIFICAÇÃO BASEADA NA EFICIÊNCIA (uso do contrato)
+                    def classificar_status(row):
+                        eficiencia = row['eficiencia']  # % do valor total que foi utilizado
 
-        # ==============================
-        # BOTÕES DE DOWNLOAD - SEMPRE NO FINAL
-        # ==============================
-        st.markdown("---")
-        st.subheader("📥 Exportar Dados Completos")
+                        # Alta eficiência = já usou mais de 70% → URGENTE
+                        if eficiencia > 70:
+                            return '🚨 URGENTE - RENOVAR IMEDIATO'
+                        # Média eficiência = usando entre 30% e 70% → Programar renovação
+                        elif eficiencia >= 30:
+                            return '🟢 RENOVAR (15 dias)'
+                        # Baixa eficiência = pouco uso (menos de 30%) → Avaliar necessidade
+                        else:
+                            return '🟡 AVALIAR COM CALMA'
 
-        # Prepara dados limpos para download (DADOS COMPLETOS, NÃO FILTRADOS)
-        df_para_download = limpar_dataframe_para_download(df)  # Usa df (completo) em vez de df_filtrado
 
-        col_dl1, col_dl2, col_dl3 = st.columns(3)
+                    df_empresas['status'] = df_empresas.apply(classificar_status, axis=1)
+                    df_empresas['prioridade'] = df_empresas['status'].map({
+                        '🚨 URGENTE - RENOVAR IMEDIATO': 1,
+                        '🟢 RENOVAR (15 dias)': 2,
+                        '🟡 AVALIAR COM CALMA': 3
+                    })
 
-        with col_dl1:
-            # Download CSV
-            csv_data = converter_para_csv(df_para_download)
-            st.download_button(
-                label="💾 Baixar CSV Completo",
-                data=csv_data,
-                file_name="contratos_completos.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+                    # Top 10 empresas por valor global (para o gráfico)
+                    df_top = df_empresas.nlargest(10, col_global).copy()
 
-        with col_dl2:
-            # Download Excel
-            excel_data = converter_para_excel(df_para_download)
-            st.download_button(
-                label="📊 Baixar Excel Completo",
-                data=excel_data,
-                file_name="contratos_completos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+                    # Prepara dados para ECharts (já estão em percentual)
+                    empresas = df_top[col_empresa].tolist()
+                    utilizado_data = df_top['percentual_utilizado'].round(1).tolist()
+                    restante_data = df_top['percentual_restante'].round(1).tolist()
 
-        with col_dl3:
-            # Download JSON
-            json_data = converter_para_json(df_para_download)
-            st.download_button(
-                label="🔤 Baixar JSON Completo",
-                data=json_data,
-                file_name="contratos_completos.json",
-                mime="application/json",
-                use_container_width=True
-            )
+                    #GRÁFICO ECHARTS
+                    html_chart = f'''
+                    <div id="comparisonChart" class="echarts-container chart-ready" style="width: 100%; height: 500px;"></div>
 
-        st.info("💡 Os downloads incluem todos os dados da planilha original, não apenas os filtrados.")
+                    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+                    <script>
+                        // Configuração do gráfico
+                        var chartOptions = {{
+                            tooltip: {{
+                                trigger: 'axis',
+                                axisPointer: {{
+                                    type: 'shadow'
+                                }},
+                                formatter: function(params) {{
+                                    var empresa = params[0].name;
+                                    var utilizado = params[0].value;
+                                    var restante = params[1].value;
+                                    var eficiencia = utilizado.toFixed(1); // Eficiência = % utilizado
+                                    var diferenca = (utilizado - restante).toFixed(1);
+
+                                    return `
+                                        <div style="padding: 8px;">
+                                            <strong>${{empresa}}</strong><br/>
+                                            💰 <span style="color: #FF6B00">Valor Total: 100%</span><br/>
+                                            ✅ <span style="color: #2196F3">Utilizado: ${{utilizado.toFixed(1)}}%</span><br/>
+                                            💰 <span style="color: #4CAF50">Saldo Restante: ${{restante.toFixed(1)}}%</span><br/>
+                                            📊 <strong>Eficiência (Uso): ${{eficiencia}}%</strong><br/>
+                                            🔄 Diferença: ${{diferenca}}%<br/>
+                                        </div>
+                                    `;
+                                }}
+                            }},
+                            legend: {{
+                                data: ['VALOR UTILIZADO (% do Total)', 'SALDO RESTANTE (% do Total)'],
+                                top: 30
+                            }},
+                            grid: {{
+                                left: '3%',
+                                right: '4%',
+                                bottom: '10%',
+                                top: '15%',
+                                containLabel: true
+                            }},
+                            xAxis: {{
+                                type: 'category',
+                                data: {empresas},
+                                axisLabel: {{
+                                    rotate: 45,
+                                    interval: 0
+                                }}
+                            }},
+                            yAxis: {{
+                                type: 'value',
+                                min: 0,
+                                max: 100,
+                                axisLabel: {{
+                                    formatter: '{{value}}%'
+                                }}
+                            }},
+                            series: [
+                                {{
+                                    name: 'VALOR UTILIZADO (% do Total)',
+                                    type: 'bar',
+                                    data: {utilizado_data},
+                                    itemStyle: {{
+                                        color: '#2196F3',
+                                        borderRadius: [4, 4, 0, 0]
+                                    }},
+                                    label: {{
+                                        show: true,
+                                        position: 'top',
+                                        formatter: '{{c}}%',
+                                        color: '#2196F3',
+                                        fontWeight: 'bold'
+                                    }}
+                                }},
+                                {{
+                                    name: 'SALDO RESTANTE (% do Total)',
+                                    type: 'bar',
+                                    data: {restante_data},
+                                    itemStyle: {{
+                                        color: '#4CAF50',
+                                        borderRadius: [4, 4, 0, 0]
+                                    }},
+                                    label: {{
+                                        show: true,
+                                        position: 'top',
+                                        formatter: '{{c}}%',
+                                        color: '#4CAF50',
+                                        fontWeight: 'bold'
+                                    }}
+                                }}
+                            ]
+                        }};
+
+                        // Função principal de inicialização
+                        function initializeLazyChart() {{
+                            console.log('🎯 Inicializando gráfico com lazy loading...');
+
+                            if (window.initLazyChart) {{
+                                var chart = window.initLazyChart('comparisonChart', chartOptions);
+
+                                if (chart) {{
+                                    console.log('✅ Gráfico registrado - animará quando 90% estiver visível');
+                                    chart.on('finished', function() {{
+                                        document.getElementById('comparisonChart').classList.add('animated');
+                                        document.getElementById('comparisonChart').classList.remove('chart-ready');
+                                    }});
+                                }} else {{
+                                    console.warn('⚠️ Falha no lazy loading, usando fallback');
+                                    initializeFallback();
+                                }}
+                            }} else {{
+                                console.warn('⚠️ Sistema lazy loading não disponível, usando fallback');
+                                initializeFallback();
+                            }}
+                        }}
+
+                        // Fallback: animação imediata
+                        function initializeFallback() {{
+                            console.log('🔄 Inicializando fallback (animação imediata)');
+                            try {{
+                                var chart = echarts.init(document.getElementById('comparisonChart'));
+                                chart.setOption({{
+                                    ...chartOptions,
+                                    animation: true,
+                                    animationDuration: 1000,
+                                    animationEasing: 'elasticOut'
+                                }});
+
+                                // Marca como animado
+                                document.getElementById('comparisonChart').classList.add('animated');
+                                document.getElementById('comparisonChart').classList.remove('chart-ready');
+
+                                window.addEventListener('resize', function() {{
+                                    chart.resize();
+                                }});
+
+                            }} catch (error) {{
+                                console.error('❌ Erro no fallback:', error);
+                            }}
+                        }}
+
+                        // Sistema de lazy loading global (se não existir)
+                        if (typeof window.initLazyChart === 'undefined') {{
+                            window.initLazyChart = function(chartId, options) {{
+                                var chartElement = document.getElementById(chartId);
+                                if (!chartElement) return null;
+
+                                var chart = echarts.init(chartElement);
+
+                                // Observer para detectar quando o gráfico está 90% visível
+                                var observer = new IntersectionObserver(function(entries) {{
+                                    entries.forEach(function(entry) {{
+                                        if (entry.isIntersecting && entry.intersectionRatio >= 0.9) {{
+                                            chart.setOption({{
+                                                ...options,
+                                                animation: true,
+                                                animationDuration: 1000,
+                                                animationEasing: 'elasticOut'
+                                            }});
+                                            observer.unobserve(entry.target);
+                                        }}
+                                    }});
+                                }}, {{ threshold: 0.9 }});
+
+                                observer.observe(chartElement);
+                                return chart;
+                            }};
+                        }}
+
+                        // Estratégias de inicialização
+                        if (document.readyState === 'loading') {{
+                            document.addEventListener('DOMContentLoaded', initializeLazyChart);
+                        }} else {{
+                            initializeLazyChart();
+                        }}
+
+                        // Backups em caso de falha
+                        setTimeout(initializeLazyChart, 500);
+                        setTimeout(function() {{
+                            var chart = echarts.getInstanceByDom(document.getElementById('comparisonChart'));
+                            if (!chart) {{
+                                console.log('🔄 Backup: gráfico não inicializado, tentando fallback');
+                                initializeFallback();
+                            }}
+                        }}, 2000);
+
+                        // Backup final - garante que o gráfico será exibido
+                        setTimeout(function() {{
+                            var chart = echarts.getInstanceByDom(document.getElementById('comparisonChart'));
+                            if (!chart) {{
+                                console.log('🔄 Último backup: inicialização forçada');
+                                initializeFallback();
+                            }}
+                        }}, 3000);
+
+                    </script>
+                    '''
+
+                    components.html(html_chart, height=550)
+
+                    # CONTAINERS EXPANSÍVEIS (ATUALIZADOS COM NOVA LÓGICA)
+                    st.markdown("---")
+                    st.markdown("### 📋 Status de Renovação por Empresa")
+
+                    # ORDENA POR PRIORIDADE
+                    df_empresas = df_empresas.sort_values('prioridade')
+
+                    # Container 1: 🚨 URGENTE - EFICIÊNCIA > 70% (alto uso)
+                    df_urgente = df_empresas[df_empresas['status'] == '🚨 URGENTE - RENOVAR IMEDIATO']
+
+                    with st.expander(f"🚨 URGENTE - RENOVAR IMEDIATO ({len(df_urgente)} empresas)", expanded=True):
+                        if len(df_urgente) > 0:
+                            st.error("**🚨 RENOVAR IMEDIATAMENTE - Contrato com alto uso (>70%)!**")
+                            for _, empresa in df_urgente.iterrows():
+                                eficiencia = empresa['eficiencia']
+
+                                col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 2, 2, 2])
+                                with col1:
+                                    st.write(f"**{empresa[col_empresa]}**")
+                                with col2:
+                                    st.metric("Eficiência (Uso)", f"{eficiencia:.1f}%", delta="Alto Uso",
+                                              delta_color="normal")
+                                with col3:
+                                    st.metric("Valor Global", f"R$ {empresa[col_global]:,.0f}")
+                                with col4:
+                                    st.metric("Utilizado", f"R$ {empresa[col_valor_usado]:,.0f}")
+                                with col5:
+                                    st.metric("Saldo Restante", f"R$ {empresa[col_saldo_restante]:,.0f}")
+                                with col6:
+                                    st.error("**RENOVAR JÁ**")
+
+                            st.error(f"⚠️ **{len(df_urgente)} contratos com alto uso - Renovar IMEDIATAMENTE**")
+                        else:
+                            st.info("ℹ️ Nenhum contrato com uso > 70%")
+
+                    # Container 2: 🟢 RENOVAR - EFICIÊNCIA 30% A 70% (uso moderado)
+                    df_renovar = df_empresas[df_empresas['status'] == '🟢 RENOVAR (15 dias)']
+
+                    with st.expander(f"🟢 RENOVAR NO PERÍODO ESTIMADO VIGÊNCIA ({len(df_renovar)} empresas)",
+                                     expanded=True):
+                        if len(df_renovar) > 0:
+                            st.success("**✅ Renovar em até 15 dias - Contrato com uso moderado (30%-70%)**")
+                            for _, empresa in df_renovar.iterrows():
+                                eficiencia = empresa['eficiencia']
+                                diferenca = empresa['diferenca_percentual']
+
+                                col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 2, 2, 2])
+                                with col1:
+                                    st.write(f"**{empresa[col_empresa]}**")
+                                with col2:
+                                    if eficiencia >= 50:
+                                        st.metric("Eficiência (Uso)", f"{eficiencia:.1f}%", delta="Bom Uso",
+                                                  delta_color="normal")
+                                    else:
+                                        st.metric("Eficiência (Uso)", f"{eficiencia:.1f}%", delta="Uso Moderado",
+                                                  delta_color="off")
+                                with col3:
+                                    st.metric("Valor Global", f"R$ {empresa[col_global]:,.0f}")
+                                with col4:
+                                    st.metric("Utilizado", f"R$ {empresa[col_valor_usado]:,.0f}")
+                                with col5:
+                                    st.metric("Saldo Restante", f"R$ {empresa[col_saldo_restante]:,.0f}")
+                                with col6:
+                                    st.metric("Saldo vs Utilizado", f"{diferenca:.1f}%")
+
+                            st.info(f"📅 **{len(df_renovar)} contratos para renovação programada**")
+                        else:
+                            st.warning("⚠️ Nenhum contrato com uso entre 30% e 70%")
+
+                    # Container 3: 🟡 AVALIAR COM CALMA - EFICIÊNCIA < 30% (pouco uso)
+                    df_avaliar = df_empresas[df_empresas['status'] == '🟡 AVALIAR COM CALMA']
+
+                    with st.expander(f"🟡 AVALIAR COM CALMA ({len(df_avaliar)} empresas)", expanded=False):
+                        if len(df_avaliar) > 0:
+                            st.warning("**🟡 Avaliar com calma - Contrato com baixo uso (<30%)**")
+                            for _, empresa in df_avaliar.iterrows():
+                                eficiencia = empresa['eficiencia']
+                                diferenca = empresa['diferenca_percentual']
+
+                                col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 2, 2, 2])
+                                with col1:
+                                    st.write(f"**{empresa[col_empresa]}**")
+                                with col2:
+                                    st.metric("Eficiência (Uso)", f"{eficiencia:.1f}%", delta="Baixo Uso",
+                                              delta_color="inverse")
+                                with col3:
+                                    st.metric("Valor Global", f"R$ {empresa[col_global]:,.0f}")
+                                with col4:
+                                    st.metric("Utilizado", f"R$ {empresa[col_valor_usado]:,.0f}")
+                                with col5:
+                                    st.metric("Saldo Restante", f"R$ {empresa[col_saldo_restante]:,.0f}")
+                                with col6:
+                                    st.metric("Saldo vs Utilizado", f"{diferenca:.1f}%", delta=f"+{diferenca:.1f}%",
+                                              delta_color="inverse")
+
+                            st.error(f"🚨 **{len(df_avaliar)} contratos com baixo uso - Avaliar necessidade**")
+                        else:
+                            st.success("🎉 Todos os contratos têm uso acima de 30%!")
+
+                    # ATUALIZAR RESUMO EXECUTIVO
+                    st.markdown("---")
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        st.metric("📊 Total Empresas", len(df_empresas))
+                    with col2:
+                        st.metric("🚨 >70% Uso", len(df_urgente), delta=f"+{len(df_urgente)}")
+                    with col3:
+                        st.metric("🟢 30%-70% Uso", len(df_renovar), delta=f"+{len(df_renovar)}")
+                    with col4:
+                        st.metric("🟡 <30% Uso", len(df_avaliar), delta=f"-{len(df_avaliar)}", delta_color="inverse")
+
+                    # LEGENDA EXPLICATIVA
+                    with st.expander("📖 Legenda dos Status"):
+                        st.markdown("""
+                            **🚨 URGENTE - RENOVAR IMEDIATO**
+                            - Eficiência (Uso) > 70%
+                            - Contrato com alto consumo
+                            - Renovar imediatamente para evitar interrupção
+
+                            **🟢 RENOVAR (15 dias) do período de vigência**
+                            - Eficiência (Uso) entre 30% e 70%
+                            - Contrato com uso moderado
+                            - Renovar dentro do prazo estimado
+
+                            **🟡 AVALIAR COM CALMA**
+                            - Eficiência (Uso) < 30%
+                            - Contrato com baixo consumo
+                            - Avaliar se o contrato ainda é necessário
+                        """)
+
+                else:
+                    st.warning("⚠️ Não há dados válidos para exibir o gráfico após a filtragem.")
+
+            else:
+                st.error("❌ Colunas necessárias não encontradas no DataFrame. Verifique os nomes das colunas.")
+            # ==============================
+            # BOTÕES DE DOWNLOAD
+            # ==============================
+            st.markdown("---")
+            st.subheader("📥 Exportar Dados Completos")
+
+            df_para_download = limpar_dataframe_para_download(df)
+
+            col_dl1, col_dl2, col_dl3 = st.columns(3)
+
+            with col_dl1:
+                csv_data = converter_para_csv(df_para_download)
+                st.download_button(
+                    label="💾 Baixar CSV Completo",
+                    data=csv_data,
+                    file_name="contratos_completos.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            with col_dl2:
+                excel_data = converter_para_excel(df_para_download)
+                st.download_button(
+                    label="📊 Baixar Excel Completo",
+                    data=excel_data,
+                    file_name="contratos_completos.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            with col_dl3:
+                json_data = converter_para_json(df_para_download)
+                st.download_button(
+                        label="🔤 Baixar JSON Completo",
+                        data=json_data,
+                        file_name="contratos_completos.json",
+                        mime="application/json",
+                        use_container_width=True
+                )
+
+            st.info("💡 Os downloads incluem todos os dados da planilha original, não apenas os filtrados.")
 
     except Exception as e:
         st.error(f"❌ Erro ao processar o arquivo: {str(e)}")
