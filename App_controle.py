@@ -387,7 +387,7 @@ if upload_file is not None:
                         st.plotly_chart(fig_gantt, use_container_width=True)
 
                         # ==============================
-                        # AVISO DE CONTRATOS PRÓXIMOS DO VENCIMENTO - VERSÃO COMPACTA
+                        # AVISO DE CONTRATOS PRÓXIMOS DO VENCIMENTO
                         # ==============================
 
                         # Data atual
@@ -506,7 +506,7 @@ if upload_file is not None:
                                             st.caption(
                                                 f"... e mais {len(normais) - 5} contratos com vencimento acima de 1 ano")
 
-            # 3. GRÁFICO DE BARRAS ECHARTS (CORRIGIDO COM NOVA LÓGICA)
+            # 3. GRÁFICO DE BARRAS ECHARTS
             st.markdown("---")
             st.subheader("🏢 Comparação: VALOR UTILIZADO vs SALDO RESTANTE")
 
